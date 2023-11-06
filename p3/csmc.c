@@ -73,6 +73,7 @@ int compareStudent_Datas(const Student_Data *a, const Student_Data *b)
 
 MaxHeap *createMaxHeap(int capacity)
 {
+  MaxHeap *heap = (MaxHeap *)malloc(sizeof(MaxHeap)); // 分配内存
   if (heap == NULL)
   {
     printf("Memory allocation failed.\n");
@@ -192,12 +193,12 @@ void *producerFunction(void *student_id)
   StudentInfo[id].tutor_id = -1;
   StudentInfo[id].taken_help_num = 0;
   StudentInfo[id].have_seated = false;
-
+  sleep(rand() % 5 + 1);
   while (1)
   {
-    sleep(1); // go back to programming for 1 second;
-    // try to ask for help from tutor, check if there are availabe seats in the queue
+    // sleep(1); // go back to programming for 1 second;
 
+    // try to ask for help from tutor, check if there are availabe seats in the queue
     sem_wait(&mutex);
     if (taken_seats < NUM_CHAIRS)
     {
@@ -208,7 +209,7 @@ void *producerFunction(void *student_id)
       StudentInfo[id].time = time;
       StudentInfo[id].have_seated = true;
       // St: Student x takes a seat. Empty chairs = <# of empty chairs>.
-      printf("St: Student %d takes a seat. Empty chairs = %d\n", id, NUM_CHAIRS - taken_seats);
+      printf("S: Student %d takes a seat. Empty chairs = %d\n", id, NUM_CHAIRS - taken_seats);
       sem_post(&mutex);
       sem_post(&barber_semaphore);
       sem_wait(&customer_semaphore);
@@ -218,19 +219,20 @@ void *producerFunction(void *student_id)
       // S: Student x found no empty chair. Will try again later
       printf("S: Student %d found no empty chair. Will try again later.\n", id);
       sem_post(&mutex);
+      sleep(rand() % 5 + 1);
       continue;
     }
 
-    // wait to be tutored.
-    while (StudentInfo[id].tutor_id == -1)
-    {
-    };
+    // // wait to be tutored.
+    // while (StudentInfo[id].tutor_id == -1)
+    // {
+    // };
 
-    // S: Student x received help from Tutor y.
-    printf("S: Student %d received help from Tutor %d.\n", id, StudentInfo[id].tutor_id);
+    // // S: Student x received help from Tutor y.
+    // printf("S: Student %d received help from Tutor %d.\n", id, StudentInfo[id].tutor_id);
 
-    // reset tutor id
-    StudentInfo[id].tutor_id = -1;
+    // // reset tutor id
+    // StudentInfo[id].tutor_id = -1;
 
     // reset have been seated
     StudentInfo[id].have_seated = false;
@@ -252,13 +254,18 @@ void *coordinatorFunction(void *args)
       {
         if (StudentInfo[i].have_seated)
         {
+          printf("in %d\n", StudentInfo[i].id);
           insert(heap, StudentInfo[i]);
         }
       }
+      Student_Data top_element = extractMax(heap);
+      printf("Consumer: Student %d with highest priority: (priority: %d, time: %u)\n",
+             top_element.id, top_element.priority, top_element.time);
       taken_seats--;
-      printf("The barber is cutting hair for customer %d\n", StudentInfo[i].id);
+      printf("The barber is cutting hair for customer %d\n", top_element.id);
       sem_post(&mutex);
-      printf("The barber has finished cutting hair for customer %d\n", StudentInfo[i].id);
+      sleep(rand() % 5 + 1);
+      printf("The barber has finished cutting hair for customer %d\n", top_element.id);
       sem_post(&customer_semaphore);
     }
     else
@@ -282,15 +289,16 @@ void *consumerFunction(void *args)
 int main()
 {
   // read in data
-  NUM_STUDENTS = 10;
+  NUM_STUDENTS = 5;
   NUM_TUTORS = 3;
-  NUM_CHAIRS = 4;
+  NUM_CHAIRS = 3;
   HELPS = 5;
   TOTAL_THREAD = NUM_STUDENTS + NUM_TUTORS;
 
+  int thread_args[NUM_THREADS];
+
   // init prority queue
-  MaxHeap *heap = (MaxHeap *)malloc(sizeof(MaxHeap));
-  heap = createMaxHeap(heap);
+  heap = createMaxHeap(NUM_CHAIRS);
   // init StudentInfo which is stored in heap
   StudentInfo = (Student_Data *)malloc(sizeof(Student_Data) * TOTAL_THREAD);
 
@@ -305,32 +313,33 @@ int main()
   sem_init(&customer_semaphore, 0, 0);
   sem_init(&Tutor_semaphore, 0, 0);
 
+  if (pthread_create(&coordinator, NULL, &coordinatorFunction, (void *)0) != 0)
+  {
+    perror("Failed to create thread");
+  }
+
   // create all threads
   for (int i = 0; i < NUM_THREADS; i++)
   {
+    thread_args[i] = i;
     if (i < NUM_STUDENTS)
     {
-      if (pthread_create(&threads[i], NULL, &producerFunction, (void *)&i) != 0)
+      if (pthread_create(&threads[i], NULL, &producerFunction, (void *)&thread_args[i]) != 0)
       {
         perror("Failed to create thread");
       }
     }
     else
     {
-      if (pthread_create(&threads[i], NULL, &consumerFunction, (void *)&i) != 0)
-      {
-        perror("Failed to create thread");
-      }
+      // if (pthread_create(&threads[i], NULL, &consumerFunction, (void *)&thread_args[i]) != 0)
+      // {
+      //   perror("Failed to create thread");
+      // }
     }
   }
 
-  if (pthread_create(&coordinator, NULL, &coordinatorFunction, (void *)0) != 0)
-  {
-    perror("Failed to create thread");
-  }
-
   // wait till all thread finish
-  for (int i = 0; i < NUM_THREADS; i++)
+  for (int i = 0; i < NUM_STUDENTS; i++)
   {
     pthread_join(threads[i], NULL);
   }
