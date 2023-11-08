@@ -9,6 +9,14 @@
 #define MAX_CUSTOMERS 5
 #define NUM_CHAIRS 3
 
+// Define student structure
+typedef struct
+{
+  int id;
+  int help;
+  int tutor_id;
+} Student;
+
 // Define the semaphores for the barber, the customers, and the mutex
 sem_t barber_semaphore;
 sem_t customer_semaphore;
@@ -18,6 +26,9 @@ sem_t mutex;
 int *waiting_customers = NULL;
 int num_waiting = 0;
 int next_customer = 0;
+
+// Define a Student array
+Student *student_array = NULL;
 
 // Define a Priority Queue to keep track priority (MLFQ with adjacent list)
 int *head = NULL;
@@ -109,15 +120,18 @@ barber(void *arg)
     sem_wait(&mutex);
     if (num_waiting > 0)
     {
-      int customer = waiting_customers[next_customer];
+      int customer_id = waiting_customers[next_customer];
+      printf("next_customer index is %d, customer is %d\n", next_customer, customer_id);
       next_customer = (next_customer + 1) % NUM_CHAIRS;
       num_waiting--;
-      printf("The barber is cutting hair for customer %d\n", customer);
+      printf("The barber is cutting hair for customer %d\n", customer_id);
       // this is where barber will put customer id inside the priority queue
+      add(student_array[customer_id].help, customer_id);
+      printPath(0);
       sem_post(&mutex);
       sleep(rand() % 5 + 1);
       printf("The barber has finished cutting hair for customer %d\n",
-             customer);
+             customer_id);
       sem_post(&customer_semaphore);
     }
     else
@@ -133,13 +147,16 @@ void *
 customer(void *arg)
 {
   int customer_id = *(int *)arg;
+  student_array[customer_id].id = customer_id;
+  student_array[customer_id].tutor_id = -1;
+  student_array[customer_id].help = 0;
   // while (1) {
   sleep(rand() % 5 + 1);
   sem_wait(&mutex);
   if (num_waiting < NUM_CHAIRS)
   {
-    waiting_customers[(next_customer + num_waiting) % NUM_CHAIRS] =
-        customer_id;
+    waiting_customers[(next_customer + num_waiting) % NUM_CHAIRS] = customer_id;
+    printf("waiting_customers index is %d, id is %d\n", (next_customer + num_waiting) % NUM_CHAIRS, customer_id);
     num_waiting++;
     printf("Customer %d is waiting in the waiting room\n", customer_id);
     sem_post(&mutex);
@@ -162,11 +179,14 @@ int main()
 {
   srand(time(NULL));
 
-  // Initialize waiting_customers
+  // Initialize waiting_customers array
   waiting_customers = (int *)malloc(NUM_CHAIRS * sizeof(int));
 
-  // Initialize Priority Queue
-  initialize();
+  //Initialize student_array
+  student_array = (Student *)malloc(MAX_CUSTOMERS * sizeof(Student));
+
+      // Initialize Priority Queue
+      initialize();
 
   //   // test
   //   add (0, 1);
