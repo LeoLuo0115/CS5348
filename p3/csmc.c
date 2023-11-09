@@ -244,6 +244,7 @@ tutor(void *arg)
         num_session++;
         helping_now++;
         student_array[student_id].tutor_id = tutor_id;
+        student_array[student_id].help++;
         printf("T: Student %d tutored by Tutor %d, Students tutored now = %d, Total sessions tutored = %d.\n", student_id, tutor_id, helping_now, num_session);
         // we need remove top priority student when when we select it from the priority queue
         Delete(i);
