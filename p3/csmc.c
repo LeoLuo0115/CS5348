@@ -17,6 +17,7 @@ typedef struct
   int id;
   int help;
   int tutor_id;
+  sem_t Student;
 } Student;
 
 // Define the semaphores for the barber, the customers, and the mutex
@@ -48,7 +49,13 @@ int idx = 0;
 int num_session = 0;
 
 // Define number of students receiving help now
-int tutoring_now = 0;
+int helping_now = 0;
+
+// Define total number of requests (notifications sent) by students for tutoring so far
+int total_request = 0;
+
+// Define the tutor list which store student id for each tutor
+int *tutoring_now = NULL;
 
 // Define the init function for priority queue
 void initialize()
@@ -157,6 +164,7 @@ barber(void *arg)
       printf("next_customer index is %d, customer is %d\n", next_customer, customer_id);
       next_customer = (next_customer + 1) % NUM_CHAIRS;
       num_waiting--;
+      total_request++;
       printf("The barber is cutting hair for customer %d\n", customer_id);
       // this is where barber will put customer id inside the priority queue
       pthread_mutex_lock(&pq_mutex);
@@ -168,7 +176,8 @@ barber(void *arg)
       sem_post(&mutex);
       sleep(rand() % 5 + 1);
       printf("The barber has finished cutting hair for customer %d\n", customer_id);
-      sem_post(&customer_semaphore);
+      // do not want barber wake up student, we want tutor wake up studnet with highest priority
+      // sem_post(&customer_semaphore);
     }
     else
     {
@@ -197,13 +206,13 @@ customer(void *arg)
     printf("Customer %d is waiting in the waiting room\n", customer_id);
     sem_post(&mutex);
     sem_post(&barber_semaphore);
-    sem_wait(&customer_semaphore);
+    // sem_wait(&customer_semaphore);
+    sem_wait(&student_array[customer_id].Student);
     printf("Customer %d has finished getting a haircut\n", customer_id);
   }
   else
   {
-    printf("Customer %d is leaving because the waiting room is full\n",
-           customer_id);
+    printf("Customer %d is leaving because the waiting room is full\n", customer_id);
     sem_post(&mutex);
   }
   // }
@@ -227,18 +236,23 @@ tutor(void *arg)
     {
       if (findTheFirstElement(i) != -1)
       {
+        int studnet_id = findTheFirstElement(i);
+        tutoring_now[tutor_id] = studnet_id;
         num_session++;
-        tutoring_now++;
-        printf("Student %d tutored by Tutor %d, Students tutored now = %d, Total sessions tutored = %d\n", findTheFirstElement(i), tutor_id, tutoring_now, num_session);
+        helping_now++;
+        printf("Student %d tutored by Tutor %d, Students tutored now = %d, Total sessions tutored = %d\n", studnet_id, tutor_id, helping_now, num_session);
         // we need remove top priority student when when we select it from the priority queue
         Delete(i);
         break;
       }
     }
     pthread_mutex_unlock(&pq_mutex);
+
     // tutor
     sleep(rand() % 2 + 1);
-    tutoring_now--;
+    helping_now--;
+
+    sem_post(&student_array[tutoring_now[tutor_id]].Student);
   }
 }
 
@@ -249,22 +263,20 @@ int main()
   // Initialize waiting_customers array
   waiting_customers = (int *)malloc(NUM_CHAIRS * sizeof(int));
 
+  // Initialize the tutoring_now array
+  tutoring_now = (int *)malloc(MAX_TUTORS * sizeof(int));
+
   // Initialize student_array
   student_array = (Student *)malloc(MAX_CUSTOMERS * sizeof(Student));
 
+  // Initialize semaphores for each student in the array
+  for (int i = 0; i < MAX_CUSTOMERS; ++i)
+  {
+    sem_init(&student_array[i].Student, 0, 0);
+  }
+
   // Initialize Priority Queue
   initialize();
-
-  // // test priority queue
-  // add (0, 1);
-  // add (0, 3);
-  // add (0, 4);
-  // add (2, 8);
-  // printPath (0);
-  // Delete (0);
-  // printPath (0);
-  // printPath (1);
-  // printPath (2);
 
   // Initialize the semaphores and mutex
   sem_init(&barber_semaphore, 0, 0);
