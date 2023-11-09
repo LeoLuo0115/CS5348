@@ -226,7 +226,7 @@ tutor(void *arg)
         num_session++;
         printf("Student %d tutored by Tutor %d, Total sessions tutored = %d\n", findTheFirstElement(i), tutor_id, num_session);
         // we need remove top priority student when when we select it from the priority queue
-        // Delete(i);
+        Delete(i);
         break;
       }
     }
