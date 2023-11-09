@@ -6,7 +6,7 @@
 #include <string.h>
 #include <time.h>
 
-#define MAX_CUSTOMERS 5
+#define MAX_studentS 5
 #define MAX_TUTORS 2
 #define NUM_CHAIRS 3
 #define NUM_HELPS 2
@@ -20,9 +20,9 @@ typedef struct
   sem_t Student;
 } Student;
 
-// Define the semaphores for the barber, the customers, and the mutex
-sem_t barber_semaphore;
-sem_t customer_semaphore;
+// Define the semaphores for the coordinator, the students, and the mutex
+sem_t coordinator_semaphore;
+sem_t student_semaphore;
 sem_t mutex;
 
 // Define the semaphores for tutors
@@ -31,10 +31,10 @@ sem_t tutor_semaphore;
 // Deinfe a mutex for priority queue
 pthread_mutex_t pq_mutex;
 
-// Define a list to keep track of the waiting customers
-int *waiting_customers = NULL;
+// Define a list to keep track of the waiting students
+int *waiting_students = NULL;
 int num_waiting = 0;
-int next_customer = 0;
+int next_student = 0;
 
 // Define a Student array
 Student *student_array = NULL;
@@ -149,35 +149,38 @@ void cleanup()
   free(ne);
 }
 
-// Define the barber thread function
+// Define the coordinator thread function
 void *
-barber(void *arg)
+coordinator(void *arg)
 {
   while (1)
   {
-    printf("The barber is sleeping...\n");
-    sem_wait(&barber_semaphore);
+    // printf("The coordinator is sleeping...\n");
+    sem_wait(&coordinator_semaphore);
     sem_wait(&mutex);
     if (num_waiting > 0)
     {
-      int customer_id = waiting_customers[next_customer];
-      printf("next_customer index is %d, customer is %d\n", next_customer, customer_id);
-      next_customer = (next_customer + 1) % NUM_CHAIRS;
-      num_waiting--;
+      int student_id = waiting_students[next_student];
+      // printf("next_student index is %d, student is %d\n", next_student, student_id);
+      next_student = (next_student + 1) % NUM_CHAIRS;
       total_request++;
-      printf("The barber is cutting hair for customer %d\n", customer_id);
-      // this is where barber will put customer id inside the priority queue
+      // printf("The coordinator is cutting hair for student %d\n", student_id);
+      // this is where coordinator will put student id inside the priority queue
       pthread_mutex_lock(&pq_mutex);
-      add(student_array[customer_id].help, customer_id);
+      add(student_array[student_id].help, student_id);
       pthread_mutex_unlock(&pq_mutex);
+      printf("C: Student %d with priority %d added to the queue. Waiting students now = %d, Total requests = %d.\n",
+             student_id, student_array[student_id].help, num_waiting, total_request);
+
       printPath(0);
+      num_waiting--;
       // notify tutor
       sem_post(&tutor_semaphore);
       sem_post(&mutex);
       sleep(rand() % 5 + 1);
-      printf("The barber has finished cutting hair for customer %d\n", customer_id);
-      // do not want barber wake up student, we want tutor wake up studnet with highest priority
-      // sem_post(&customer_semaphore);
+      // printf("The coordinator has finished cutting hair for student %d\n", student_id);
+      //  do not want coordinator wake up student, we want tutor wake up student with highest priority
+      //  sem_post(&student_semaphore);
     }
     else
     {
@@ -187,32 +190,32 @@ barber(void *arg)
   return NULL;
 }
 
-// Define the customer thread function
+// Define the student thread function
 void *
-customer(void *arg)
+student(void *arg)
 {
-  int customer_id = *(int *)arg;
-  student_array[customer_id].id = customer_id;
-  student_array[customer_id].tutor_id = -1;
-  student_array[customer_id].help = 0;
+  int student_id = *(int *)arg;
+  student_array[student_id].id = student_id;
+  student_array[student_id].tutor_id = -1;
+  student_array[student_id].help = 0;
   // while (1) {
   sleep(rand() % 5 + 1);
   sem_wait(&mutex);
   if (num_waiting < NUM_CHAIRS)
   {
-    waiting_customers[(next_customer + num_waiting) % NUM_CHAIRS] = customer_id;
-    printf("waiting_customers index is %d, id is %d\n", (next_customer + num_waiting) % NUM_CHAIRS, customer_id);
+    waiting_students[(next_student + num_waiting) % NUM_CHAIRS] = student_id;
+    // printf("waiting_students index is %d, id is %d\n", (next_student + num_waiting) % NUM_CHAIRS, student_id);
     num_waiting++;
-    printf("Customer %d is waiting in the waiting room\n", customer_id);
+    printf("S: student %d is waiting in the waiting room\n", student_id);
     sem_post(&mutex);
-    sem_post(&barber_semaphore);
-    // sem_wait(&customer_semaphore);
-    sem_wait(&student_array[customer_id].Student);
-    printf("Customer %d has finished getting a haircut\n", customer_id);
+    sem_post(&coordinator_semaphore);
+    // sem_wait(&student_semaphore);
+    sem_wait(&student_array[student_id].Student);
+    printf("S: Student %d received help from Tutor %d.\n", student_id, student_array[student_id].tutor_id);
   }
   else
   {
-    printf("Customer %d is leaving because the waiting room is full\n", customer_id);
+    printf("S: Student %d found no empty chair. Will try again later.\n", student_id);
     sem_post(&mutex);
   }
   // }
@@ -228,7 +231,7 @@ tutor(void *arg)
 
   while (1)
   {
-    printf("The tutor is sleeping...\n");
+    // printf("The tutor is sleeping...\n");
     sem_wait(&tutor_semaphore);
 
     pthread_mutex_lock(&pq_mutex);
@@ -236,11 +239,12 @@ tutor(void *arg)
     {
       if (findTheFirstElement(i) != -1)
       {
-        int studnet_id = findTheFirstElement(i);
-        tutoring_now[tutor_id] = studnet_id;
+        int student_id = findTheFirstElement(i);
+        tutoring_now[tutor_id] = student_id;
         num_session++;
         helping_now++;
-        printf("Student %d tutored by Tutor %d, Students tutored now = %d, Total sessions tutored = %d\n", studnet_id, tutor_id, helping_now, num_session);
+        student_array[student_id].tutor_id = tutor_id;
+        printf("T: Student %d tutored by Tutor %d, Students tutored now = %d, Total sessions tutored = %d.\n", student_id, tutor_id, helping_now, num_session);
         // we need remove top priority student when when we select it from the priority queue
         Delete(i);
         break;
@@ -260,17 +264,17 @@ int main()
 {
   srand(time(NULL));
 
-  // Initialize waiting_customers array
-  waiting_customers = (int *)malloc(NUM_CHAIRS * sizeof(int));
+  // Initialize waiting_students array
+  waiting_students = (int *)malloc(NUM_CHAIRS * sizeof(int));
 
   // Initialize the tutoring_now array
   tutoring_now = (int *)malloc(MAX_TUTORS * sizeof(int));
 
   // Initialize student_array
-  student_array = (Student *)malloc(MAX_CUSTOMERS * sizeof(Student));
+  student_array = (Student *)malloc(MAX_studentS * sizeof(Student));
 
   // Initialize semaphores for each student in the array
-  for (int i = 0; i < MAX_CUSTOMERS; ++i)
+  for (int i = 0; i < MAX_studentS; ++i)
   {
     sem_init(&student_array[i].Student, 0, 0);
   }
@@ -279,23 +283,23 @@ int main()
   initialize();
 
   // Initialize the semaphores and mutex
-  sem_init(&barber_semaphore, 0, 0);
-  sem_init(&customer_semaphore, 0, 0);
+  sem_init(&coordinator_semaphore, 0, 0);
+  sem_init(&student_semaphore, 0, 0);
   sem_init(&mutex, 0, 1);
   sem_init(&tutor_semaphore, 0, 0);
   pthread_mutex_init(&pq_mutex, NULL);
 
-  // Create a thread for the barber
-  pthread_t barber_thread;
-  pthread_create(&barber_thread, NULL, barber, NULL);
+  // Create a thread for the coordinator
+  pthread_t coordinator_thread;
+  pthread_create(&coordinator_thread, NULL, coordinator, NULL);
 
-  // Create a thread for each customer
-  pthread_t customer_threads[MAX_CUSTOMERS];
-  int customer_ids[MAX_CUSTOMERS];
-  for (int i = 0; i < MAX_CUSTOMERS; i++)
+  // Create a thread for each student
+  pthread_t student_threads[MAX_studentS];
+  int student_ids[MAX_studentS];
+  for (int i = 0; i < MAX_studentS; i++)
   {
-    customer_ids[i] = i;
-    pthread_create(&customer_threads[i], NULL, customer, &customer_ids[i]);
+    student_ids[i] = i;
+    pthread_create(&student_threads[i], NULL, student, &student_ids[i]);
   }
 
   // Create a thread for each tutor
@@ -307,22 +311,22 @@ int main()
     pthread_create(&tutor_threads[i], NULL, tutor, &tutor_ids[i]);
   }
 
-  // Join the barber and customer threads
-  pthread_join(barber_thread, NULL);
-  for (int i = 0; i < MAX_CUSTOMERS; i++)
+  // Join the coordinator and student threads
+  pthread_join(coordinator_thread, NULL);
+  for (int i = 0; i < MAX_studentS; i++)
   {
-    pthread_join(customer_threads[i], NULL);
+    pthread_join(student_threads[i], NULL);
   }
 
   // Join the tutor threads
-  for (int i = 0; i < MAX_CUSTOMERS; i++)
+  for (int i = 0; i < MAX_studentS; i++)
   {
     pthread_join(tutor_threads[i], NULL);
   }
 
   // Destroy the semaphores
-  sem_destroy(&barber_semaphore);
-  sem_destroy(&customer_semaphore);
+  sem_destroy(&coordinator_semaphore);
+  sem_destroy(&student_semaphore);
   sem_destroy(&mutex);
   pthread_mutex_destroy(&pq_mutex);
 
