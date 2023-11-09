@@ -47,6 +47,9 @@ int idx = 0;
 // Define the total number of tutoring sessions completed so far by all the tutors
 int num_session = 0;
 
+// Define number of students receiving help now
+int tutoring_now = 0;
+
 // Define the init function for priority queue
 void initialize()
 {
@@ -83,7 +86,7 @@ void add(int a, int b)
   idx++;
 }
 
-// Define the delete at head function 
+// Define the delete at head function
 void Delete(int a)
 {
   if (head[a] != -1)
@@ -218,19 +221,24 @@ tutor(void *arg)
   {
     printf("The tutor is sleeping...\n");
     sem_wait(&tutor_semaphore);
-    sleep(rand() % 2 + 1);
+
     pthread_mutex_lock(&pq_mutex);
     for (int i = 0; i < NUM_HELPS; i++)
     {
-      if(findTheFirstElement(i) != -1) {
+      if (findTheFirstElement(i) != -1)
+      {
         num_session++;
-        printf("Student %d tutored by Tutor %d, Total sessions tutored = %d\n", findTheFirstElement(i), tutor_id, num_session);
+        tutoring_now++;
+        printf("Student %d tutored by Tutor %d, Students tutored now = %d, Total sessions tutored = %d\n", findTheFirstElement(i), tutor_id, tutoring_now, num_session);
         // we need remove top priority student when when we select it from the priority queue
         Delete(i);
         break;
       }
     }
     pthread_mutex_unlock(&pq_mutex);
+    // tutor
+    sleep(rand() % 2 + 1);
+    tutoring_now--;
   }
 }
 
