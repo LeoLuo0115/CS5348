@@ -7,7 +7,9 @@
 #include <time.h>
 
 #define MAX_CUSTOMERS 5
+#define MAX_TUTORS 2
 #define NUM_CHAIRS 3
+#define NUM_HELPS 2
 
 // Define student structure
 typedef struct
@@ -21,6 +23,12 @@ typedef struct
 sem_t barber_semaphore;
 sem_t customer_semaphore;
 sem_t mutex;
+
+// Define the semaphores for tutors
+sem_t tutor_semaphore;
+
+// Deinfe a mutex for priority queue
+pthread_mutex_t pq_mutex;
 
 // Define a list to keep track of the waiting customers
 int *waiting_customers = NULL;
@@ -36,19 +44,22 @@ int *e = NULL;
 int *ne = NULL;
 int idx = 0;
 
+// Define the total number of tutoring sessions completed so far by all the tutors
+int num_session = 0;
+
 // Define the init function for priority queue
 void initialize()
 {
-  head = (int *)malloc(NUM_CHAIRS * sizeof(int));
-  e = (int *)malloc(NUM_CHAIRS * sizeof(int));
-  ne = (int *)malloc(NUM_CHAIRS * sizeof(int));
+  head = (int *)malloc(NUM_HELPS * sizeof(int));
+  e = (int *)malloc(NUM_HELPS * sizeof(int));
+  ne = (int *)malloc(NUM_HELPS * sizeof(int));
 
   if (head == NULL || e == NULL || ne == NULL)
   {
     fprintf(stderr, "Memory allocation failed\n");
     exit(1);
   }
-  memset(head, -1, NUM_CHAIRS * sizeof(int));
+  memset(head, -1, NUM_HELPS * sizeof(int));
 }
 
 // Define the add function, a -> b, add at end of linklist
@@ -72,7 +83,7 @@ void add(int a, int b)
   idx++;
 }
 
-// Define the delete at head functiion
+// Define the delete at head function 
 void Delete(int a)
 {
   if (head[a] != -1)
@@ -81,10 +92,29 @@ void Delete(int a)
   }
 }
 
+int findTheFirstElement(int i)
+{
+  if (i < 0 || i >= NUM_HELPS)
+  {
+    fprintf(stderr, "Access Memory out of range of adjacent list\n");
+    exit(1);
+  }
+
+  int cur = head[i];
+  if (cur != -1)
+  {
+    return e[cur];
+  }
+  else
+  {
+    return -1;
+  }
+}
+
 // Define the print function to print all node along with vertex i
 void printPath(int i)
 {
-  if (i >= NUM_CHAIRS)
+  if (i > NUM_HELPS)
   {
     fprintf(stderr, "Access Memory out of range of adjacent list\n");
     exit(1);
@@ -126,12 +156,15 @@ barber(void *arg)
       num_waiting--;
       printf("The barber is cutting hair for customer %d\n", customer_id);
       // this is where barber will put customer id inside the priority queue
+      pthread_mutex_lock(&pq_mutex);
       add(student_array[customer_id].help, customer_id);
+      pthread_mutex_unlock(&pq_mutex);
       printPath(0);
+      // notify tutor
+      sem_post(&tutor_semaphore);
       sem_post(&mutex);
       sleep(rand() % 5 + 1);
-      printf("The barber has finished cutting hair for customer %d\n",
-             customer_id);
+      printf("The barber has finished cutting hair for customer %d\n", customer_id);
       sem_post(&customer_semaphore);
     }
     else
@@ -175,6 +208,32 @@ customer(void *arg)
   return NULL;
 }
 
+void *
+tutor(void *arg)
+{
+  int tutor_id = *(int *)arg;
+  // printf("tutor id is %d\n", tutor_id);
+
+  while (1)
+  {
+    printf("The tutor is sleeping...\n");
+    sem_wait(&tutor_semaphore);
+    sleep(rand() % 2 + 1);
+    pthread_mutex_lock(&pq_mutex);
+    for (int i = 0; i < NUM_HELPS; i++)
+    {
+      if(findTheFirstElement(i) != -1) {
+        num_session++;
+        printf("Student %d tutored by Tutor %d, Total sessions tutored = %d\n", findTheFirstElement(i), tutor_id, num_session);
+        // we need remove top priority student when when we select it from the priority queue
+        // Delete(i);
+        break;
+      }
+    }
+    pthread_mutex_unlock(&pq_mutex);
+  }
+}
+
 int main()
 {
   srand(time(NULL));
@@ -182,27 +241,29 @@ int main()
   // Initialize waiting_customers array
   waiting_customers = (int *)malloc(NUM_CHAIRS * sizeof(int));
 
-  //Initialize student_array
+  // Initialize student_array
   student_array = (Student *)malloc(MAX_CUSTOMERS * sizeof(Student));
 
-      // Initialize Priority Queue
-      initialize();
+  // Initialize Priority Queue
+  initialize();
 
-  //   // test
-  //   add (0, 1);
-  //   add (0, 3);
-  //   add (0, 4);
-  //   add (2, 8);
-  //   printPath (0);
-  //   Delete (0);
-  //   printPath (0);
-  //   printPath (1);
-  //   printPath (2);
+  // // test priority queue
+  // add (0, 1);
+  // add (0, 3);
+  // add (0, 4);
+  // add (2, 8);
+  // printPath (0);
+  // Delete (0);
+  // printPath (0);
+  // printPath (1);
+  // printPath (2);
 
-  // Initialize the semaphores
+  // Initialize the semaphores and mutex
   sem_init(&barber_semaphore, 0, 0);
   sem_init(&customer_semaphore, 0, 0);
   sem_init(&mutex, 0, 1);
+  sem_init(&tutor_semaphore, 0, 0);
+  pthread_mutex_init(&pq_mutex, NULL);
 
   // Create a thread for the barber
   pthread_t barber_thread;
@@ -217,6 +278,15 @@ int main()
     pthread_create(&customer_threads[i], NULL, customer, &customer_ids[i]);
   }
 
+  // Create a thread for each tutor
+  pthread_t tutor_threads[MAX_TUTORS];
+  int tutor_ids[MAX_TUTORS];
+  for (int i = 0; i < MAX_TUTORS; i++)
+  {
+    tutor_ids[i] = i;
+    pthread_create(&tutor_threads[i], NULL, tutor, &tutor_ids[i]);
+  }
+
   // Join the barber and customer threads
   pthread_join(barber_thread, NULL);
   for (int i = 0; i < MAX_CUSTOMERS; i++)
@@ -224,10 +294,17 @@ int main()
     pthread_join(customer_threads[i], NULL);
   }
 
+  // Join the tutor threads
+  for (int i = 0; i < MAX_CUSTOMERS; i++)
+  {
+    pthread_join(tutor_threads[i], NULL);
+  }
+
   // Destroy the semaphores
   sem_destroy(&barber_semaphore);
   sem_destroy(&customer_semaphore);
   sem_destroy(&mutex);
+  pthread_mutex_destroy(&pq_mutex);
 
   return 0;
 }
