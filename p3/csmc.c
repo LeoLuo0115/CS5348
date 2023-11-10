@@ -28,8 +28,14 @@ sem_t mutex;
 // Define the semaphores for tutors
 sem_t tutor_semaphore;
 
-// Deinfe a mutex for priority queue
+// Define a mutex for priority queue
 pthread_mutex_t pq_mutex;
+
+// Define a mutex for finsih flag
+pthread_mutex_t finish_mutex;
+
+// Define the total number of studnets who have taken required number of help from tutors
+int finished_student = 0;
 
 // Define a list to keep track of the waiting students
 int *waiting_students = NULL;
@@ -75,6 +81,12 @@ void initialize()
 // Define the add function, a -> b, add at end of linklist
 void add(int a, int b)
 {
+  if (a < 0 || a >= NUM_HELPS)
+  {
+    fprintf(stderr, "Access Memory out of range of adjacent list\n");
+    exit(1);
+  }
+
   e[idx] = b;
   ne[idx] = -1;
   if (head[a] == -1)
@@ -167,12 +179,16 @@ coordinator(void *arg)
       // printf("The coordinator is cutting hair for student %d\n", student_id);
       // this is where coordinator will put student id inside the priority queue
       pthread_mutex_lock(&pq_mutex);
-      add(student_array[student_id].help, student_id);
-      pthread_mutex_unlock(&pq_mutex);
       printf("C: Student %d with priority %d added to the queue. Waiting students now = %d, Total requests = %d.\n",
              student_id, student_array[student_id].help, num_waiting, total_request);
-
-      printPath(0);
+      add(student_array[student_id].help, student_id);
+      pthread_mutex_unlock(&pq_mutex);
+      // printf("C: Student %d with priority %d added to the queue. Waiting students now = %d, Total requests = %d.\n",
+      //        student_id, student_array[student_id].help, num_waiting, total_request);
+      for (int i = 0; i < NUM_HELPS; i++)
+      {
+        printPath(i);
+      }
       num_waiting--;
       // notify tutor
       sem_post(&tutor_semaphore);
@@ -198,27 +214,35 @@ student(void *arg)
   student_array[student_id].id = student_id;
   student_array[student_id].tutor_id = -1;
   student_array[student_id].help = 0;
-  // while (1) {
-  sleep(rand() % 5 + 1);
-  sem_wait(&mutex);
-  if (num_waiting < NUM_CHAIRS)
+  while (1)
   {
-    waiting_students[(next_student + num_waiting) % NUM_CHAIRS] = student_id;
-    // printf("waiting_students index is %d, id is %d\n", (next_student + num_waiting) % NUM_CHAIRS, student_id);
-    num_waiting++;
-    printf("S: student %d is waiting in the waiting room\n", student_id);
-    sem_post(&mutex);
-    sem_post(&coordinator_semaphore);
-    // sem_wait(&student_semaphore);
-    sem_wait(&student_array[student_id].Student);
-    printf("S: Student %d received help from Tutor %d.\n", student_id, student_array[student_id].tutor_id);
+    sleep(rand() % 5 + 1);
+    if (student_array[student_id].help >= NUM_HELPS)
+    {
+      pthread_mutex_lock(&finish_mutex);
+      finished_student++;
+      pthread_mutex_unlock(&finish_mutex);
+      pthread_exit(NULL);
+    }
+    sem_wait(&mutex);
+    if (num_waiting < NUM_CHAIRS)
+    {
+      waiting_students[(next_student + num_waiting) % NUM_CHAIRS] = student_id;
+      // printf("waiting_students index is %d, id is %d\n", (next_student + num_waiting) % NUM_CHAIRS, student_id);
+      num_waiting++;
+      printf("S: student %d is waiting in the waiting room\n", student_id);
+      sem_post(&mutex);
+      sem_post(&coordinator_semaphore);
+      // sem_wait(&student_semaphore);
+      sem_wait(&student_array[student_id].Student);
+      printf("S: Student %d received help from Tutor %d.\n", student_id, student_array[student_id].tutor_id);
+    }
+    else
+    {
+      printf("S: Student %d found no empty chair. Will try again later.\n", student_id);
+      sem_post(&mutex);
+    }
   }
-  else
-  {
-    printf("S: Student %d found no empty chair. Will try again later.\n", student_id);
-    sem_post(&mutex);
-  }
-  // }
 
   return NULL;
 }
@@ -289,6 +313,7 @@ int main()
   sem_init(&mutex, 0, 1);
   sem_init(&tutor_semaphore, 0, 0);
   pthread_mutex_init(&pq_mutex, NULL);
+  pthread_mutex_init(&finish_mutex, NULL);
 
   // Create a thread for the coordinator
   pthread_t coordinator_thread;
@@ -330,6 +355,7 @@ int main()
   sem_destroy(&student_semaphore);
   sem_destroy(&mutex);
   pthread_mutex_destroy(&pq_mutex);
+  pthread_mutex_destroy(&finish_mutex);
 
   return 0;
 }
