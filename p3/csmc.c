@@ -6,7 +6,7 @@
 #include <string.h>
 #include <time.h>
 
-#define MAX_studentS 5
+#define MAX_STUDENTS 5
 #define MAX_TUTORS 2
 #define NUM_CHAIRS 3
 #define NUM_HELPS 2
@@ -108,6 +108,12 @@ void add(int a, int b)
 // Define the delete at head function
 void Delete(int a)
 {
+  if (a < 0 || a >= NUM_HELPS)
+  {
+    fprintf(stderr, "Access Memory out of range of adjacent list\n");
+    exit(1);
+  }
+
   if (head[a] != -1)
   {
     head[a] = ne[head[a]];
@@ -136,11 +142,12 @@ int findTheFirstElement(int i)
 // Define the print function to print all node along with vertex i
 void printPath(int i)
 {
-  if (i > NUM_HELPS)
+  if (i < 0 || i > NUM_HELPS)
   {
     fprintf(stderr, "Access Memory out of range of adjacent list\n");
     exit(1);
   }
+
   printf("%d -> ", i);
 
   int cur = head[i];
@@ -167,6 +174,19 @@ coordinator(void *arg)
 {
   while (1)
   {
+    if (finished_student == MAX_STUDENTS)
+    {
+      sem_post(&tutor_semaphore);
+      // only have 1 coordinator, so no race condition here
+      for (int i = 0; i < MAX_TUTORS; i++)
+      {
+        // notify tutors to terminate
+        sem_post(&tutor_semaphore);
+      }
+      printf("------coordinator terminate------\n");
+      pthread_exit(NULL);
+    }
+
     // printf("The coordinator is sleeping...\n");
     sem_wait(&coordinator_semaphore);
     sem_wait(&mutex);
@@ -217,13 +237,22 @@ student(void *arg)
   while (1)
   {
     sleep(rand() % 5 + 1);
+    
+    // check if student get required help numbers, if yes terminate itself
     if (student_array[student_id].help >= NUM_HELPS)
     {
       pthread_mutex_lock(&finish_mutex);
       finished_student++;
+      if (finished_student == MAX_STUDENTS)
+      {
+        sem_post(&coordinator_semaphore);
+      }
       pthread_mutex_unlock(&finish_mutex);
+      
+      printf("------student %d terminate------\n",student_id);
       pthread_exit(NULL);
     }
+
     sem_wait(&mutex);
     if (num_waiting < NUM_CHAIRS)
     {
@@ -255,6 +284,11 @@ tutor(void *arg)
 
   while (1)
   {
+    if (finished_student == MAX_STUDENTS)
+    {
+      printf("------tutor %d terminate------\n", tutor_id);
+      pthread_exit(NULL);
+    }
     // printf("The tutor is sleeping...\n");
     sem_wait(&tutor_semaphore);
 
@@ -296,10 +330,10 @@ int main()
   tutoring_now = (int *)malloc(MAX_TUTORS * sizeof(int));
 
   // Initialize student_array
-  student_array = (Student *)malloc(MAX_studentS * sizeof(Student));
+  student_array = (Student *)malloc(MAX_STUDENTS * sizeof(Student));
 
   // Initialize semaphores for each student in the array
-  for (int i = 0; i < MAX_studentS; ++i)
+  for (int i = 0; i < MAX_STUDENTS; ++i)
   {
     sem_init(&student_array[i].Student, 0, 0);
   }
@@ -320,9 +354,9 @@ int main()
   pthread_create(&coordinator_thread, NULL, coordinator, NULL);
 
   // Create a thread for each student
-  pthread_t student_threads[MAX_studentS];
-  int student_ids[MAX_studentS];
-  for (int i = 0; i < MAX_studentS; i++)
+  pthread_t student_threads[MAX_STUDENTS];
+  int student_ids[MAX_STUDENTS];
+  for (int i = 0; i < MAX_STUDENTS; i++)
   {
     student_ids[i] = i;
     pthread_create(&student_threads[i], NULL, student, &student_ids[i]);
@@ -338,14 +372,15 @@ int main()
   }
 
   // Join the coordinator and student threads
-  pthread_join(coordinator_thread, NULL);
-  for (int i = 0; i < MAX_studentS; i++)
+  for (int i = 0; i < MAX_STUDENTS; i++)
   {
     pthread_join(student_threads[i], NULL);
   }
 
+  pthread_join(coordinator_thread, NULL);
+  
   // Join the tutor threads
-  for (int i = 0; i < MAX_studentS; i++)
+  for (int i = 0; i < MAX_TUTORS; i++)
   {
     pthread_join(tutor_threads[i], NULL);
   }
