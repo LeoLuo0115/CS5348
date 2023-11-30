@@ -22,7 +22,7 @@ typedef struct
 
 // Define the semaphores for the coordinator, the students, and the mutex
 sem_t coordinator_semaphore;
-//sem_t student_semaphore;
+// sem_t student_semaphore;
 sem_t mutex;
 
 // Define the semaphores for tutors
@@ -160,13 +160,13 @@ void printPath(int i)
   // printf("NULL\n");
 }
 
-// Define the free function for priority queue
-void cleanup()
-{
-  free(head);
-  free(e);
-  free(ne);
-}
+// // Define the free function for priority queue
+// void cleanup()
+// {
+//   free(head);
+//   free(e);
+//   free(ne);
+// }
 
 // Define the coordinator thread function
 void *
@@ -213,7 +213,7 @@ coordinator(void *arg)
       // notify tutor
       sem_post(&tutor_semaphore);
       sem_post(&mutex);
-      sleep((rand() % 2001)/1000);
+      sleep((rand() % 2001) / 1000);
       // printf("The coordinator has finished cutting hair for student %d\n", student_id);
       //  do not want coordinator wake up student, we want tutor wake up student with highest priority
       //  sem_post(&student_semaphore);
@@ -236,8 +236,8 @@ student(void *arg)
   student_array[student_id].help = 0;
   while (1)
   {
-    sleep((rand() % 2001)/1000); // student sleeping is simulating as doing project from 0 to 2 ms.
-    
+    sleep((rand() % 2001) / 1000); // student sleeping is simulating as doing project from 0 to 2 ms.
+
     // check if student get required help numbers, if yes terminate itself
     if (student_array[student_id].help >= NUM_HELPS)
     {
@@ -248,7 +248,7 @@ student(void *arg)
         sem_post(&coordinator_semaphore);
       }
       pthread_mutex_unlock(&finish_mutex);
-      
+
       // printf("------student %d terminate------\n",student_id);
       pthread_exit(NULL);
     }
@@ -324,14 +324,15 @@ tutor(void *arg)
 int main(int argc, char *argv[])
 {
 
-  if(argc != 5){
+  if (argc != 5)
+  {
     fprintf(stderr, "Invalid number of arguments\n");
     exit(1);
   }
 
   MAX_STUDENTS = atoi(argv[1]);
-  MAX_TUTORS =atoi(argv[2]);
-  NUM_CHAIRS =atoi(argv[3]);
+  MAX_TUTORS = atoi(argv[2]);
+  NUM_CHAIRS = atoi(argv[3]);
   NUM_HELPS = atoi(argv[4]);
 
   srand(time(NULL));
@@ -356,7 +357,7 @@ int main(int argc, char *argv[])
 
   // Initialize the semaphores and mutex
   sem_init(&coordinator_semaphore, 0, 0);
-  //sem_init(&student_semaphore, 0, 0);
+  // sem_init(&student_semaphore, 0, 0);
   sem_init(&mutex, 0, 1);
   sem_init(&tutor_semaphore, 0, 0);
   pthread_mutex_init(&pq_mutex, NULL);
@@ -391,19 +392,19 @@ int main(int argc, char *argv[])
   }
 
   pthread_join(coordinator_thread, NULL);
-  
+
   // Join the tutor threads
   for (int i = 0; i < MAX_TUTORS; i++)
   {
     pthread_join(tutor_threads[i], NULL);
   }
 
-  // Destroy the semaphores
-  sem_destroy(&coordinator_semaphore);
-  //sem_destroy(&student_semaphore);
-  sem_destroy(&mutex);
-  pthread_mutex_destroy(&pq_mutex);
-  pthread_mutex_destroy(&finish_mutex);
+  // // Destroy the semaphores
+  // sem_destroy(&coordinator_semaphore);
+  // //sem_destroy(&student_semaphore);
+  // sem_destroy(&mutex);
+  // pthread_mutex_destroy(&pq_mutex);
+  // pthread_mutex_destroy(&finish_mutex);
 
   return 0;
 }
