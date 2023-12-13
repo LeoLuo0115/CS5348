@@ -60,15 +60,20 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
+  /*........................................................................................*/
+  /*  Structure of the xv6 file system */
+  /* |boot|super|  inodes   | bit map  |  data ... data |  log  | */
+  /*   0    1    2                                               */
+
   /* read the super block */
+  /* addr points to boot, so we need +1 * BLOCK_SIZE to point to super block */
   sb = (struct superblock *)(addr + 1 * BLOCK_SIZE);
   printf("no. of fs size(total blocks) %d, no. of data blocks %d, no. of inodes %d \n", sb->size, sb->nblocks, sb->ninodes);
-
-  /* number of blocks to store inode */
+  /* number of blocks to store inode, +1 for the upper bound*/
   numinodeblocks = (sb->ninodes / (IPB)) + 1;
-  /* number of blocks to store bitmap */
+  /* number of blocks to store bitmap, +1 for the upper bound*/
   numbitmapblocks = (sb->size / (BPB)) + 1;
-  /* start address of inode blocks */
+  /* start address of inode blocks, +2 * BLOCK_SIZE to point to startaddress of inode*/
   inodeAddr = (char *)(addr + 2 * BLOCK_SIZE);
   /* start address of bitmap blocks */
   bitmapAddr = (char *)(inodeAddr + numinodeblocks * BLOCK_SIZE);
@@ -76,7 +81,7 @@ int main(int argc, char *argv[])
   datablocksAddr = (char *)(bitmapAddr + numbitmapblocks * BLOCK_SIZE);
   /* block number of first data blocks */
   firstdatablocknumber = 2 + numinodeblocks + numbitmapblocks;
-  /* read the this file image inode address, calculate an offset based on a specific inode number to locate the position of a specific inode.*/
+  /* read the specific file image inode address*/
   fimg_inode_address = (struct dinode *)(addr + IBLOCK(buf.st_ino) * BLOCK_SIZE);
 
   // output info
@@ -84,22 +89,69 @@ int main(int argc, char *argv[])
   printf("no. of bits per block %d\n", BPB);
   printf("no. of blocks for inode %d\n", numinodeblocks);
   printf("no. of blocks for bitmap %d   \n", numbitmapblocks);
-  printf("start address of inode blocks %p\n", inodeAddr);
+  printf("start address of inode blocks for xv6 file system %p\n", inodeAddr);
   printf("start address of bitmap blocks %p \n", bitmapAddr);
   printf("start address of data blocks %p \n", datablocksAddr);
-  printf("block number of first data blocks %d \n", firstdatablocknumber);
-  // printf("fs begin addr %p, file img inode address %p , offset from address %ld \n", addr, fimg_inode_address, (char *)fimg_inode_address - addr);
+  printf("start address of first data blocks %d \n", firstdatablocknumber);
+  printf("file system begin addr %p, file img inode address %p , offset from address %ld \n", addr, fimg_inode_address, (char *)fimg_inode_address - addr);
 
-  struct dinode *dip;
-  dip = (struct dinode *)inodeAddr;
-  // rule1
+  /*........................................................................................*/
+
+  struct dinode *startInodeAddress;
+  startInodeAddress = (struct dinode *)inodeAddr;
+
+  // traverse all the indoe
   for (int i = 0; i < sb->ninodes; i++)
   {
-    if (dip[i].type < 0 || dip[i].type > 3)
+    // rule1 : Each inode is either unallocated or one of the valid types (T_FILE, T_DIR, T_DEV) If not, print ERROR: bad inode.
+    // type = 0 unallocated, type = 1,2,3 (T_FILE, T_DIR, T_DEV)
+    if ((startInodeAddress + i)->type < 0 || (startInodeAddress + i)->type > 3)
     {
       fprintf(stderr, "%s", "ERROR: bad inode.\n");
       exit(1);
     }
+
+    /* rule2 : For in-use inodes, each block address that is used by the inode is valid (points to
+    a valid data block address within the image). If the direct block is used and is
+    invalid, print ERROR: bad direct address in inode.; if the indirect block is in use and is invalid, print ERROR: bad indirect address in inode. */
+
+    // check direct block
+    for (int j = 0; j < NDIRECT; j++)
+    {
+      // startInodeAddress[i] = *(startInodeAddress + i)
+      uint directBlockAddress = startInodeAddress[i].addrs[j];
+      // directBlock is not used
+      if (directBlockAddress == 0)
+        continue;
+      // directBlock is out of range
+      if (directBlockAddress < 0 || directBlockAddress >= sb->size)
+      {
+        fprintf(stderr, "%s", "ERROR: bad direct address in inode.\n");
+        exit(1);
+      }
+    }
+
+    // check Indirect block // 
+    uint IndirectBlockAddress = startInodeAddress[i].addrs[NINDIRECT];
+    fprintf(stdout, "%u\n", IndirectBlockAddress);
+
+    uint *indirectblk; // 1 - 128
+    indirectblk = (uint *)(addr + IndirectBlockAddress * BLOCK_SIZE);
+    fprintf(stdout, "%p\n", indirectblk);
+    // // IndirectBlock is not used
+    // if (IndirectBlockAddress == 0)
+    //   continue;
+    // // IndirectBlock is out of range
+    // if (IndirectBlockAddress < 0 || IndirectBlockAddress >= sb->size)
+    // {
+    //   fprintf(stderr, "%s", "ERROR: bad indirect address in inode.\n");
+    //   exit(1);
+    // }
+    // // check the next level 128 direct pointers address inside the indrect block
+    // for (int i = 0; i < NINDIRECT; i++)
+    // {
+    //   uint indirect
+    // }
   }
 
   /*************************************************************************************/
