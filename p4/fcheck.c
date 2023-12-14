@@ -101,8 +101,10 @@ int main(int argc, char *argv[])
   struct dinode *startInodeAddress;
   startInodeAddress = (struct dinode *)inodeAddr;
   uint data_block_start_number = (datablocksAddr - addr) / BSIZE;
-  // printf("bytes in between %ld\n", datablocksAddr - addr);
-  // printf("data_block_start_number %d\n", data_block_start_number);
+  int blocks_in_use[sb->size];
+  memset(blocks_in_use, 0, (sb->size) * sizeof(blocks_in_use[0]));
+  int inodes_in_use[sb->ninodes];
+  memset(inodes_in_use, 0, (sb->ninodes) * sizeof(inodes_in_use[0]));
 
   // traverse all the indoe
   for (int i = 0; i < sb->ninodes; i++)
@@ -125,27 +127,40 @@ int main(int argc, char *argv[])
       if (directDataBlockNum == 0)
         continue;
       // directBlock is used but invalid
-      if ((directDataBlockNum < data_block_start_number || directDataBlockNum >= data_block_start_number + sb->nblocks))
+      if (directDataBlockNum < data_block_start_number || directDataBlockNum >= data_block_start_number + sb->nblocks)
       {
         fprintf(stderr, "%s", "ERROR: bad direct address in inode.\n");
         exit(1);
       }
+      if (blocks_in_use[directDataBlockNum] == 1)
+      {
+        fprintf(stderr, "%s", "ERROR: direct address used more than once.\n");
+        exit(1);
+      }
+      blocks_in_use[directDataBlockNum] = 1;
     }
 
     // rule 2-2 check indirect block: For in-use inodes, each indirect address in use is also valid. If the indirect block is in use and is invalid, print ERROR: bad indirect address in inode.
     // we have to first make sure the indirect block number is valid, then we can check the indirect block content, we will need indirect block adress to check the indirect block content, and for each indirect block content(direct data block number), we will need to check whether it is valid
-    uint indirectDataBlockNum = startInodeAddress[i].addrs[NDIRECT];
+    uint indirectBlockNum = startInodeAddress[i].addrs[NDIRECT];
     // indirectBlock is not used
-    if (indirectDataBlockNum == 0)
+    if (indirectBlockNum == 0)
       continue;
     // indirectBlock is used but invalid
-    if ((indirectDataBlockNum < data_block_start_number || indirectDataBlockNum >= data_block_start_number + sb->nblocks))
+    if ((indirectBlockNum < data_block_start_number || indirectBlockNum >= data_block_start_number + sb->nblocks))
     {
       fprintf(stderr, "%s", "ERROR: bad indirect address in inode.\n");
       exit(1);
     }
+    if (blocks_in_use[indirectBlockNum] == 1)
+    {
+      fprintf(stderr, "%s", "ERROR: indirect address used more than once.\n");
+      exit(1);
+    }
+    blocks_in_use[indirectBlockNum] = 1;
+    
     // check indirect block points to valid data block
-    uint *indirectBlockAddr = (uint *)(addr + indirectDataBlockNum * BSIZE);
+    uint *indirectBlockAddr = (uint *)(addr + indirectBlockNum * BSIZE);
     for (int j = 0; j < NINDIRECT; j++)
     {
       uint indirectDataBlockNum = indirectBlockAddr[j];
@@ -153,11 +168,17 @@ int main(int argc, char *argv[])
       if (indirectDataBlockNum == 0)
         continue;
       // indirectBlock is used but invalid
-      if ((indirectDataBlockNum < data_block_start_number || indirectDataBlockNum >= data_block_start_number + sb->nblocks))
+      if (indirectDataBlockNum < data_block_start_number || indirectDataBlockNum >= data_block_start_number + sb->nblocks)
       {
         fprintf(stderr, "%s", "ERROR: bad indirect address in inode.\n");
         exit(1);
       }
+      if (blocks_in_use[indirectDataBlockNum] == 1)
+      {
+        fprintf(stderr, "%s", "ERROR: indirect address used more than once.\n");
+        exit(1);
+      }
+      blocks_in_use[indirectDataBlockNum] = 1;
     }
   }
 
