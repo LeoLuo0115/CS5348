@@ -107,7 +107,9 @@ int main(int argc, char *argv[])
   // inodes are used by directory entry
   int inodes_dir_refcnt[sb->ninodes];
   memset(inodes_dir_refcnt, 0, (sb->ninodes) * sizeof(inodes_dir_refcnt[0]));
-
+  // reference number directory
+  int dir_ref[sb->ninodes];
+  memset(dir_ref, 0, (sb->ninodes) * sizeof(dir_ref[0]));
 
   // if (startInodeAddress[0].type == 0) {
   //   fprintf(stderr, "%s", "this show inode 0 is marked free, but is possible that other directory refred to inode 0 which could be a problem when we have reference check\n");
@@ -309,11 +311,12 @@ int main(int argc, char *argv[])
           struct dirent *de = (struct dirent *)(addr + startInodeAddress[i].addrs[j] * BSIZE);
           for (int k = 0; k < DPB; k++)
           {
-            // if (x > 0 || j > 1)
-            // {
-            //   dir_ref[entry[j].inum] += 1;
-            // }
-            inodes_dir_refcnt[de[k].inum] += 1;
+            // k >= 2 because we need to skip . and .. entry
+            if (k >= 2)
+            {
+              dir_ref[de[k].inum]++;
+            }
+            inodes_dir_refcnt[de[k].inum]++;
           }
         }
       }
@@ -325,8 +328,12 @@ int main(int argc, char *argv[])
           struct dirent *de = (struct dirent *)(addr + indirect[j] * BSIZE);
           for (int k = 0; k < DPB; k++)
           {
-            inodes_dir_refcnt[de[k].inum] += 1;
-            // dir_ref[entry[j].inum] += 1;
+            inodes_dir_refcnt[de[k].inum]++;
+            // k >= 2 because we need to skip . and .. entry
+            if (k >= 2)
+            {
+              dir_ref[de[k].inum]++;
+            }
           }
         }
       }
@@ -350,7 +357,8 @@ int main(int argc, char *argv[])
   }
 
   // rule 10: For each inode number that is referred to in a valid directory, it is actually marked in use. If not, print ERROR: inode referred to in directory but marked free.
-  // we need to start at 1 because inode 0 is reserved in xv6, we could have directory entry that refers to inode 0, and inode 0 is not a type is free or reserved, then we will get error for all file when we iterate inode 0.
+  // we need to start at 1 because inode 0 is reserved in xv6, we could have directory entry that refers to inode 0, and inode 0 is not a type, it is free or reserved, then we will get error for all file when we iterate inode 0.
+  // we also know rootindoe start at 1 so no need to check inode 0 (which is reserved)
   for (int i = 1; i < sb->ninodes; i++)
   {
     if (inodes_dir_refcnt[i] != 0)
@@ -358,6 +366,44 @@ int main(int argc, char *argv[])
       if (startInodeAddress[i].type == 0)
       {
         fprintf(stderr, "%s", "ERROR: inode referred to in directory but marked free.\n");
+        exit(1);
+      }
+    }
+  }
+
+  // rule 11: Reference counts (number of links) for regular files match the number of times file is referred to in directories (i.e., hard links work correctly). If not, print ERROR: bad reference count for file.
+  // No	extra	links	allowed	for	directories	(each	directory	only appears in one	other	directory).
+
+  /*
+  /dir1/file1 -> inode 5
+  /dir2/file1 -> inode 5
+  /dir3/file1 -> inode 5
+
+  inode 5 has 3 links, 1 for dir1, 1 for dir2, 1 for dir3
+  file1(inode 5) has 3 reference count, 1 for dir1, 1 for dir2, 1 for dir3
+  */
+  for (int i = 1; i < sb->ninodes; i++)
+  {
+    if (startInodeAddress[i].type == T_FILE)
+    {
+      if (inodes_dir_refcnt[i] != startInodeAddress[i].nlink)
+      {
+        fprintf(stderr, "%s", "ERROR: bad reference count for file.\n");
+        exit(1);
+      }
+    }
+  }
+
+  // rule 12 : No extra links allowed for directories (each directory only appears in one other directory). If not, print ERROR: directory appears more than once in file system.
+  // inodes_dir_refcnt do not care about directory, it only cares about inode, so we need to use dir_ref to check whether directory appears more than once in file system
+  // dir_ref will skip . and .. entry, so we care about other directory entry besides . and ..
+  for (int i = 1; i < sb->ninodes; i++)
+  {
+    if (startInodeAddress[i].type == 1)
+    {
+      if (dir_ref[i] > 1)
+      {
+        fprintf(stderr, "%s", "ERROR: directory appears more than once in file system.\n");
         exit(1);
       }
     }
