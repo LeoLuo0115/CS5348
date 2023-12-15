@@ -101,10 +101,18 @@ int main(int argc, char *argv[])
   struct dinode *startInodeAddress;
   startInodeAddress = (struct dinode *)inodeAddr;
   uint data_block_start_number = (datablocksAddr - addr) / BSIZE;
+  // blocks are used by inode
   int blocks_in_use[sb->size];
   memset(blocks_in_use, 0, (sb->size) * sizeof(blocks_in_use[0]));
-  int inodes_in_use[sb->ninodes];
-  memset(inodes_in_use, 0, (sb->ninodes) * sizeof(inodes_in_use[0]));
+  // inodes are used by directory entry
+  int inodes_dir_refcnt[sb->ninodes];
+  memset(inodes_dir_refcnt, 0, (sb->ninodes) * sizeof(inodes_dir_refcnt[0]));
+
+
+  // if (startInodeAddress[0].type == 0) {
+  //   fprintf(stderr, "%s", "this show inode 0 is marked free, but is possible that other directory refred to inode 0 which could be a problem when we have reference check\n");
+  //   exit(1);
+  // }
 
   // traverse all the indoe
   for (int i = 0; i < sb->ninodes; i++)
@@ -287,7 +295,71 @@ int main(int argc, char *argv[])
       }
     }
   }
-  
-  
-  
+
+  /*....................................................................................*/
+  // fill in the inodes_dir_refcnt array, for each directory entry, we need to check whether the inode is actually used
+  for (int i = 0; i < sb->ninodes; i++)
+  {
+    if (startInodeAddress[i].type == 1)
+    {
+      for (int j = 0; j < NDIRECT; j++)
+      {
+        if (startInodeAddress[i].addrs[j] != 0)
+        {
+          struct dirent *de = (struct dirent *)(addr + startInodeAddress[i].addrs[j] * BSIZE);
+          for (int k = 0; k < DPB; k++)
+          {
+            // if (x > 0 || j > 1)
+            // {
+            //   dir_ref[entry[j].inum] += 1;
+            // }
+            inodes_dir_refcnt[de[k].inum] += 1;
+          }
+        }
+      }
+      uint *indirect = (uint *)(addr + BSIZE * startInodeAddress[i].addrs[NDIRECT]);
+      for (int j = 0; j < NINDIRECT; j++)
+      {
+        if (indirect[j] != 0)
+        {
+          struct dirent *de = (struct dirent *)(addr + indirect[j] * BSIZE);
+          for (int k = 0; k < DPB; k++)
+          {
+            inodes_dir_refcnt[de[k].inum] += 1;
+            // dir_ref[entry[j].inum] += 1;
+          }
+        }
+      }
+    }
+  }
+
+  // rule 9: For all inodes marked in use, each must be referred to in at least one directory. If not, print ERROR: inode marked use but not found in a directory.
+  for (int i = 0; i < sb->ninodes; i++)
+  {
+    // inode is marked as used
+    // inode 0 is marked free so it will not go into this if statement
+    if (startInodeAddress[i].type > 0 && startInodeAddress[i].type <= 3)
+    {
+      // check whether the inode is actually used
+      if (inodes_dir_refcnt[i] == 0)
+      {
+        fprintf(stderr, "%s", "ERROR: inode marked use but not found in a directory.\n");
+        exit(1);
+      }
+    }
+  }
+
+  // rule 10: For each inode number that is referred to in a valid directory, it is actually marked in use. If not, print ERROR: inode referred to in directory but marked free.
+  // we need to start at 1 because inode 0 is reserved in xv6, we could have directory entry that refers to inode 0, and inode 0 is not a type is free or reserved, then we will get error for all file when we iterate inode 0.
+  for (int i = 1; i < sb->ninodes; i++)
+  {
+    if (inodes_dir_refcnt[i] != 0)
+    {
+      if (startInodeAddress[i].type == 0)
+      {
+        fprintf(stderr, "%s", "ERROR: inode referred to in directory but marked free.\n");
+        exit(1);
+      }
+    }
+  }
 }
