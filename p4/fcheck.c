@@ -222,9 +222,72 @@ int main(int argc, char *argv[])
         exit(1);
       }
     }
-    
-    
+
+    // rule 5: For in-use inodes, each address in use is also marked in use in the bitmap. If not, print ERROR: address used by inode but marked free in bitmap.
+    // check direct block
+    for (int j = 0; j < NDIRECT + 1; j++)
+    {
+      uint fist_level_datablock_number = startInodeAddress[i].addrs[j];
+      if (fist_level_datablock_number != 0)
+      {
+        uint bitmap_array_pos = fist_level_datablock_number / 8;
+        uint bit_position_within_byte = fist_level_datablock_number % 8;
+        uint mask = 1 << bit_position_within_byte;
+        // check whether the bit reference to direct data blcok is 1 in bitmap
+        if ((bitmapAddr[bitmap_array_pos] & (mask)) == 0)
+        {
+          {
+            fprintf(stderr, "%s", "ERROR: address used by inode but marked free in bitmap.\n");
+            exit(1);
+          }
+        }
+      }
+    }
+
+    // check indirect block
+    uint *indirectBlockAddr = (uint *)(addr + BSIZE * startInodeAddress[i].addrs[NDIRECT]);
+    for (int j = 0; j < NINDIRECT; j++)
+    {
+      //
+      uint indirectDataBlockNum = indirectBlockAddr[j];
+      if (indirectDataBlockNum != 0)
+      {
+        uint bitmap_array_pos = indirectDataBlockNum / 8;
+        uint bit_position_within_byte = indirectDataBlockNum % 8;
+        uint mask = 1 << bit_position_within_byte;
+        // check whether the bit reference to indirect data blcok is 1 in bitmap
+        if ((bitmapAddr[bitmap_array_pos] & (mask)) == 0)
+        {
+          {
+            fprintf(stderr, "%s", "ERROR: address used by inode but marked free in bitmap.\n");
+            exit(1);
+          }
+        }
+      }
+    }
   }
 
-  exit(0);
+  /*....................................................................................*/
+
+  // rule 6 : For blocks marked in-use in bitmap, the block should actually be in-use in an inode or indirect block somewhere. If not, print ERROR: bitmap marks block in use but it is not in use.
+  // i need to check all the data block in bitmap, if the data block is marked as 1 in bitmap, then i need to check whether it is used by inode or indirect block
+  for (int i = 0; i < sb->nblocks; i++)
+  {
+    uint bitmap_array_pos = (i + data_block_start_number) / 8;
+    uint bit_position_within_byte = (i + data_block_start_number) % 8;
+    uint mask = 1 << bit_position_within_byte;
+    // block is marked as 1 in bitmap which means it is used, we need to check if is accutally used by using blocks_in_use array
+    if ((bitmapAddr[bitmap_array_pos] & (mask)) != 0)
+    {
+      // check whether the data block is actually used
+      if (blocks_in_use[i + data_block_start_number] != 1)
+      {
+        fprintf(stderr, "%s", "ERROR: bitmap marks block in use but it is not in use.\n");
+        exit(1);
+      }
+    }
+  }
+  
+  
+  
 }
