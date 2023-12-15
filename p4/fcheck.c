@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
   {
 
     // rule1 : Each inode is either unallocated or one of the valid types (T_FILE, T_DIR, T_DEV). If not, print ERROR: bad inode.
-    if ((startInodeAddress + i)->type < 0 || (startInodeAddress + i)->type > 3)
+    if (startInodeAddress[i].type < 0 || startInodeAddress[i].type > 3)
     {
       fprintf(stderr, "%s", "ERROR: bad inode.\n");
       exit(1);
@@ -123,63 +123,107 @@ int main(int argc, char *argv[])
       // startInodeAddress[i] = *(startInodeAddress + i)
       uint directDataBlockNum = startInodeAddress[i].addrs[j];
       // fprintf(stdout, "%u", directDataBlockNum);
-      // directBlock is not used
-      if (directDataBlockNum == 0)
-        continue;
-      // directBlock is used but invalid
-      if (directDataBlockNum < data_block_start_number || directDataBlockNum >= data_block_start_number + sb->nblocks)
+      // directBlock is used
+      if (directDataBlockNum != 0)
       {
-        fprintf(stderr, "%s", "ERROR: bad direct address in inode.\n");
-        exit(1);
+        // directBlock is used but invalid
+        if (directDataBlockNum < data_block_start_number || directDataBlockNum >= data_block_start_number + sb->nblocks)
+        {
+          fprintf(stderr, "%s", "ERROR: bad direct address in inode.\n");
+          exit(1);
+        }
+        // directBlock is used more than once
+        if (blocks_in_use[directDataBlockNum] == 1)
+        {
+          fprintf(stderr, "%s", "ERROR: direct address used more than once.\n");
+          exit(1);
+        }
+        // directBlock is used once
+        blocks_in_use[directDataBlockNum] = 1;
       }
-      if (blocks_in_use[directDataBlockNum] == 1)
-      {
-        fprintf(stderr, "%s", "ERROR: direct address used more than once.\n");
-        exit(1);
-      }
-      blocks_in_use[directDataBlockNum] = 1;
     }
 
     // rule 2-2 check indirect block: For in-use inodes, each indirect address in use is also valid. If the indirect block is in use and is invalid, print ERROR: bad indirect address in inode.
     // we have to first make sure the indirect block number is valid, then we can check the indirect block content, we will need indirect block adress to check the indirect block content, and for each indirect block content(direct data block number), we will need to check whether it is valid
     uint indirectBlockNum = startInodeAddress[i].addrs[NDIRECT];
-    // indirectBlock is not used
-    if (indirectBlockNum == 0)
-      continue;
-    // indirectBlock is used but invalid
-    if ((indirectBlockNum < data_block_start_number || indirectBlockNum >= data_block_start_number + sb->nblocks))
+    // indirectBlock is used, we can not skip inode if indeirectBlock is not used, because we need to check directory entry in direct block; if we skip inode, we will miss the directory entry in direct block in rule 4
+    if (indirectBlockNum != 0)
     {
-      fprintf(stderr, "%s", "ERROR: bad indirect address in inode.\n");
-      exit(1);
-    }
-    if (blocks_in_use[indirectBlockNum] == 1)
-    {
-      fprintf(stderr, "%s", "ERROR: indirect address used more than once.\n");
-      exit(1);
-    }
-    blocks_in_use[indirectBlockNum] = 1;
-    
-    // check indirect block points to valid data block
-    uint *indirectBlockAddr = (uint *)(addr + indirectBlockNum * BSIZE);
-    for (int j = 0; j < NINDIRECT; j++)
-    {
-      uint indirectDataBlockNum = indirectBlockAddr[j];
-      // indirectBlock is not used
-      if (indirectDataBlockNum == 0)
-        continue;
       // indirectBlock is used but invalid
-      if (indirectDataBlockNum < data_block_start_number || indirectDataBlockNum >= data_block_start_number + sb->nblocks)
+      if ((indirectBlockNum < data_block_start_number || indirectBlockNum >= data_block_start_number + sb->nblocks))
       {
         fprintf(stderr, "%s", "ERROR: bad indirect address in inode.\n");
         exit(1);
       }
-      if (blocks_in_use[indirectDataBlockNum] == 1)
+      // indirectBlock is used more than once
+      if (blocks_in_use[indirectBlockNum] == 1)
       {
         fprintf(stderr, "%s", "ERROR: indirect address used more than once.\n");
         exit(1);
       }
-      blocks_in_use[indirectDataBlockNum] = 1;
+      // indirectBlock is used once
+      blocks_in_use[indirectBlockNum] = 1;
+
+      // check indirect block points to valid data block
+      uint *indirectBlockAddr = (uint *)(addr + indirectBlockNum * BSIZE);
+      for (int j = 0; j < NINDIRECT; j++)
+      {
+        uint indirectDataBlockNum = indirectBlockAddr[j];
+        // indirectBlock is not used
+        if (indirectDataBlockNum == 0)
+          continue;
+        // indirectBlock is used but invalid
+        if (indirectDataBlockNum < data_block_start_number || indirectDataBlockNum >= data_block_start_number + sb->nblocks)
+        {
+          fprintf(stderr, "%s", "ERROR: bad indirect address in inode.\n");
+          exit(1);
+        }
+        if (blocks_in_use[indirectDataBlockNum] == 1)
+        {
+          fprintf(stderr, "%s", "ERROR: indirect address used more than once.\n");
+          exit(1);
+        }
+        blocks_in_use[indirectDataBlockNum] = 1;
+      }
     }
+
+    // rule 4: Each directory contains . and .. entries, and the . entry points to the directory itself. If not, print ERROR: directory not properly formatted.
+    if (startInodeAddress[i].type == T_DIR)
+    {
+      // check . entry, . entry points to the directory itself and its inode number is i
+      struct dirent *de = (struct dirent *)(addr + startInodeAddress[i].addrs[0] * BSIZE);
+      if (strcmp(de[1].name, "..") != 0 || strcmp(de[0].name, ".") != 0 || de[0].inum != i)
+      {
+        fprintf(stderr, "%s", "ERROR: directory not properly formatted.\n");
+        exit(1);
+      }
+    }
+
+    // rule 3: Root directory exists, its inode number is 1, and the parent of the root directory is itself. If not, print ERROR: root directory does not exist.
+    if (i == ROOTINO)
+    {
+      if (startInodeAddress[i].type != T_DIR)
+      {
+        fprintf(stderr, "%s", "ERROR: root directory does not exist.\n");
+        exit(1);
+      }
+      // check . entry, . entry points to the directory itself and its inode number is 1
+      struct dirent *de = (struct dirent *)(addr + startInodeAddress[i].addrs[0] * BSIZE);
+      if (de->inum != ROOTINO || strcmp(de->name, ".") != 0)
+      {
+        fprintf(stderr, "%s", "ERROR: root directory does not exist.\n");
+        exit(1);
+      }
+      // check .. entry, .. entry points to the directory itself and its inode number is 1
+      de = (struct dirent *)(addr + startInodeAddress[i].addrs[0] * BSIZE + sizeof(struct dirent));
+      if (de->inum != ROOTINO || strcmp(de->name, "..") != 0)
+      {
+        fprintf(stderr, "%s", "ERROR: root directory does not exist.\n");
+        exit(1);
+      }
+    }
+    
+    
   }
 
   exit(0);
